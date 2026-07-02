@@ -83,5 +83,5 @@ jobs:
           if ($LASTEXITCODE -eq 0) {
             gh release upload $tag $installer.FullName --clobber
           } else {
-            gh release create $tag $installer.FullName --title "Crosslay $tag" --notes "Windows installer for Crosslay."
+            gh release create $tag $installer.FullName --title "Crosslay $tag" --generate-notes
           }
