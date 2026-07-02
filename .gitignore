@@ -2,6 +2,7 @@
 bin/
 obj/
 _build_check/
+artifacts/
 
 # IDE/user-local files
 .vs/

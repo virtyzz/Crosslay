@@ -18,6 +18,19 @@ This MVP intentionally avoids DLL injection, process memory access, game renderi
 dotnet build
 ```
 
+## Publish
+
+Create a Windows installer from GitHub Actions by pushing a version tag:
+
+```powershell
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The workflow builds a self-contained `win-x64` app, creates `Crosslay-Setup-<version>.exe`, uploads it as an Actions artifact, and attaches it to the matching GitHub Release.
+
+Crosslay uses WebView2 for the editor. Windows 10/11 usually includes the WebView2 Runtime; if it is missing, install the Microsoft Edge WebView2 Runtime.
+
 ## Run
 
 ```powershell
