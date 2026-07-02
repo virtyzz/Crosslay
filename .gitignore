@@ -18,6 +18,10 @@ _build_check/
 *.pdb
 *.cache
 
+# Internal planning/design notes
+IMPLEMENTATION_PLAN.md
+TECHNICAL_DESIGN.md
+
 # NuGet
 *.nupkg
 packages/
@@ -25,4 +29,3 @@ packages/
 # OS noise
 Thumbs.db
 Desktop.ini
-
