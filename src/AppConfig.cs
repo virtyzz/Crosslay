@@ -10,6 +10,7 @@ internal sealed class AppConfig
     public bool OverlayVisible { get; set; } = true;
     public string? TargetMonitorDeviceName { get; set; }
     public string ActiveProfileId { get; set; } = "default";
+    public string? LastPromptedUpdateVersion { get; set; }
     public List<CrosshairProfile> Profiles { get; set; } = [CrosshairProfile.Default()];
     public HotkeyBindings Hotkeys { get; set; } = new();
 
@@ -78,6 +79,7 @@ internal sealed class AppConfig
         OverlayVisible = OverlayVisible,
         TargetMonitorDeviceName = TargetMonitorDeviceName,
         ActiveProfileId = ActiveProfileId,
+        LastPromptedUpdateVersion = LastPromptedUpdateVersion,
         Profiles = Profiles.Select(profile => profile.Clone()).ToList(),
         Hotkeys = Hotkeys.Clone()
     };

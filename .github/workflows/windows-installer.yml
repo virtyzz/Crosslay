@@ -50,6 +50,9 @@ jobs:
             -p:IncludeNativeLibrariesForSelfExtract=true `
             -p:DebugType=none `
             -p:DebugSymbols=false `
+            -p:Version=$env:CROSSLAY_VERSION `
+            -p:AssemblyVersion=$env:CROSSLAY_VERSION.0 `
+            -p:FileVersion=$env:CROSSLAY_VERSION.0 `
             --output .\artifacts\publish
 
       - name: Install Inno Setup
@@ -82,4 +85,3 @@ jobs:
           } else {
             gh release create $tag $installer.FullName --title "Crosslay $tag" --notes "Windows installer for Crosslay."
           }
-

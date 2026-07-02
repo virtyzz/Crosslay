@@ -11,11 +11,17 @@ internal sealed class TrayController : IDisposable
     private readonly ToolStripMenuItem profilesItem;
     private readonly Action<string> onSelectProfile;
 
-    public TrayController(Action onToggleOverlay, Action onOpenEditor, Action<string> onSelectProfile, Action onExit)
+    public TrayController(
+        Action onToggleOverlay,
+        Action onOpenEditor,
+        Action onOpenUpdates,
+        Action<string> onSelectProfile,
+        Action onExit)
     {
         this.onSelectProfile = onSelectProfile;
         toggleItem = new ToolStripMenuItem("Скрыть оверлей", null, (_, _) => onToggleOverlay());
         var editorItem = new ToolStripMenuItem("Редактор", null, (_, _) => onOpenEditor());
+        var updatesItem = new ToolStripMenuItem("Обновление", null, (_, _) => onOpenUpdates());
         profilesItem = new ToolStripMenuItem("Профили");
         var exitItem = new ToolStripMenuItem("Выход", null, (_, _) => onExit());
 
@@ -23,6 +29,7 @@ internal sealed class TrayController : IDisposable
         menu.Items.Add(toggleItem);
         menu.Items.Add(profilesItem);
         menu.Items.Add(editorItem);
+        menu.Items.Add(updatesItem);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(exitItem);
 

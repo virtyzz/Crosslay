@@ -15,14 +15,19 @@ internal sealed class EditorForm : Form
     };
 
     private readonly AssetStore assetStore = new();
+    private readonly UpdateService updateService;
     private readonly WebView2 webView = new();
     private AppConfig config;
+    private UpdateInfo? updateInfo;
+    private string? pendingTab;
     private bool webReady;
 
     public event Action<AppConfig>? ConfigChanged;
 
-    public EditorForm(AppConfig source)
+    public EditorForm(AppConfig source, UpdateService updateService, string? initialTab = null)
     {
+        this.updateService = updateService;
+        pendingTab = initialTab;
         config = source.Clone();
         config.Normalize();
 
@@ -37,6 +42,23 @@ internal sealed class EditorForm : Form
         Controls.Add(webView);
 
         Shown += async (_, _) => await InitializeWebViewAsync();
+    }
+
+    public void OpenTab(string tab)
+    {
+        pendingTab = tab;
+        if (tab == "updates")
+        {
+            _ = RefreshUpdateInfoAsync(false);
+        }
+
+        if (!webReady || webView.CoreWebView2 is null)
+        {
+            return;
+        }
+
+        var json = JsonSerializer.Serialize(tab);
+        _ = webView.CoreWebView2.ExecuteScriptAsync($"window.Crosslay.openTab({json});");
     }
 
     public void ApplyExternalConfig(AppConfig source)
@@ -78,7 +100,12 @@ internal sealed class EditorForm : Form
             {
                 case "ready":
                     webReady = true;
+                    var shouldRefreshUpdates = pendingTab == "updates";
                     await SendStateAsync();
+                    if (shouldRefreshUpdates)
+                    {
+                        await RefreshUpdateInfoAsync(false);
+                    }
                     break;
                 case "updateConfig":
                     ApplyConfigFromWeb(root.GetProperty("config"));
@@ -119,6 +146,16 @@ internal sealed class EditorForm : Form
                 break;
             case "refreshMonitors":
                 await SendStateAsync();
+                break;
+            case "checkUpdate":
+                await RefreshUpdateInfoAsync(true);
+                break;
+            case "downloadUpdate":
+                if (updateInfo is null)
+                {
+                    updateInfo = await updateService.GetLatestAsync();
+                }
+                UpdateService.OpenDownload(updateInfo);
                 break;
         }
     }
@@ -190,9 +227,13 @@ internal sealed class EditorForm : Form
         }
 
         var profile = config.CurrentProfile;
+        var openTab = pendingTab;
+        pendingTab = null;
         var payload = new
         {
             config,
+            openTab,
+            update = updateInfo,
             monitors = MonitorInfo.GetAll().Select(monitor => new
             {
                 monitor.DeviceName,
@@ -203,6 +244,12 @@ internal sealed class EditorForm : Form
         };
         var json = JsonSerializer.Serialize(payload, JsonOptions);
         await webView.CoreWebView2.ExecuteScriptAsync($"window.Crosslay.receiveState({json});");
+    }
+
+    private async Task RefreshUpdateInfoAsync(bool forceRefresh)
+    {
+        updateInfo = await updateService.GetLatestAsync(forceRefresh);
+        await SendStateAsync();
     }
 
     private async Task SendErrorAsync(string message)
@@ -516,6 +563,20 @@ input[type="color"] {
 .action.danger {
   color: #f0aab1;
 }
+.update-status {
+  display: grid;
+  gap: 8px;
+  color: var(--text);
+}
+.update-status strong {
+  color: var(--accent);
+}
+.release-notes {
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+  color: var(--muted);
+}
 .preview-wrap {
   padding: 14px;
   display: grid;
@@ -614,7 +675,8 @@ const tabs = [
   ["image", "Изображение"],
   ["hotkeys", "Горячие клавиши"],
   ["monitor", "Монитор"],
-  ["profiles", "Профили"]
+  ["profiles", "Профили"],
+  ["updates", "Обновление"]
 ];
 
 function post(message) {
@@ -742,7 +804,8 @@ function renderEditor() {
     image: renderImage(),
     hotkeys: renderHotkeys(),
     monitor: renderMonitor(),
-    profiles: renderProfiles(p)
+    profiles: renderProfiles(p),
+    updates: renderUpdates()
   };
   document.getElementById("editor").innerHTML = `<div class="section active">${sections[activeTab]}</div>`;
   if (activeTab === "crosshair") {
@@ -938,6 +1001,38 @@ function renderProfiles(p) {
       <button class="action" data-profile="duplicate">Дублировать</button>
       <button class="action danger" data-profile="delete">Удалить</button>
       <button class="action" data-profile="reset">Сбросить</button>
+    </div>
+  `;
+}
+
+function renderUpdates() {
+  const info = state.update;
+  if (!info) {
+    return `
+      <h2>Обновление</h2>
+      ${field("Статус", { input: `<div class="update-status">Проверка еще не выполнялась.</div>` })}
+      <div class="actions">
+        <button class="action primary" data-command="checkUpdate">Проверить</button>
+      </div>
+    `;
+  }
+
+  const status = info.ErrorMessage
+    ? `Не удалось проверить обновление: ${escapeHtml(info.ErrorMessage)}`
+    : info.IsUpdateAvailable
+      ? `<strong>Доступна новая версия ${escapeHtml(info.LatestVersion)}</strong>`
+      : "Установлена актуальная версия.";
+  const published = info.PublishedAt ? new Date(info.PublishedAt).toLocaleDateString() : "";
+  const notes = (info.ReleaseNotes || "Описание версии не указано.").trim();
+  const downloadDisabled = !info.InstallerUrl && !info.ReleaseUrl ? "disabled" : "";
+
+  return `
+    <h2>Обновление</h2>
+    ${field("Статус", { input: `<div class="update-status">${status}<span>Текущая версия: ${escapeHtml(info.CurrentVersion)}</span><span>Последняя версия: ${escapeHtml(info.LatestVersion || "-")}${published ? " от " + escapeHtml(published) : ""}</span></div>` })}
+    ${field("Описание версии", { input: `<div class="release-notes">${escapeHtml(notes)}</div>` })}
+    <div class="actions">
+      <button class="action" data-command="checkUpdate">Проверить снова</button>
+      <button class="action primary" data-command="downloadUpdate" ${downloadDisabled}>Скачать установщик</button>
     </div>
   `;
 }
@@ -1146,7 +1241,14 @@ document.addEventListener("keydown", event => {
 
 document.addEventListener("click", event => {
   const tab = event.target.closest("[data-tab]");
-  if (tab) { activeTab = tab.dataset.tab; render(); return; }
+  if (tab) {
+    activeTab = tab.dataset.tab;
+    render();
+    if (activeTab === "updates" && !state.update) {
+      post({ type: "command", name: "checkUpdate" });
+    }
+    return;
+  }
 });
 
 document.getElementById("profileSelect").addEventListener("change", event => {
@@ -1206,12 +1308,22 @@ document.addEventListener("click", event => {
 window.Crosslay = {
   receiveState(next) {
     state = next;
+    if (next.openTab) {
+      activeTab = next.openTab;
+    }
     if (isEditingValueControl()) {
       document.getElementById("preview").src = state.preview || "";
       document.getElementById("activeProfileName").textContent = profile()?.Name || "";
       return;
     }
     render();
+  },
+  openTab(tab) {
+    activeTab = tab;
+    render();
+    if (activeTab === "updates" && !state.update) {
+      post({ type: "command", name: "checkUpdate" });
+    }
   },
   showError(message) {
     const toast = document.getElementById("toast");

@@ -5,6 +5,7 @@ namespace CrosshairMarker;
 internal sealed class CrosshairApplicationContext : ApplicationContext
 {
     private readonly ConfigStore store;
+    private readonly UpdateService updateService;
     private readonly OverlayForm overlay;
     private readonly TrayController tray;
     private readonly HotkeyManager hotkeys;
@@ -14,6 +15,7 @@ internal sealed class CrosshairApplicationContext : ApplicationContext
     public CrosshairApplicationContext()
     {
         store = new ConfigStore();
+        updateService = new UpdateService();
         config = store.Load();
         overlay = new OverlayForm();
         overlay.ApplyMonitor(config.TargetMonitorDeviceName);
@@ -27,6 +29,7 @@ internal sealed class CrosshairApplicationContext : ApplicationContext
         tray = new TrayController(
             onToggleOverlay: ToggleOverlay,
             onOpenEditor: OpenEditor,
+            onOpenUpdates: OpenUpdates,
             onSelectProfile: SelectProfile,
             onExit: ExitApplication);
         tray.SetOverlayVisible(config.OverlayVisible);
@@ -34,6 +37,7 @@ internal sealed class CrosshairApplicationContext : ApplicationContext
 
         hotkeys = new HotkeyManager();
         RegisterConfiguredHotkeys();
+        _ = CheckForStartupUpdateAsync();
     }
 
     private void ToggleOverlay()
@@ -54,13 +58,27 @@ internal sealed class CrosshairApplicationContext : ApplicationContext
 
     private void OpenEditor()
     {
+        OpenEditor(null);
+    }
+
+    private void OpenUpdates()
+    {
+        OpenEditor("updates");
+    }
+
+    private void OpenEditor(string? initialTab)
+    {
         if (editor is { IsDisposed: false })
         {
+            if (!string.IsNullOrWhiteSpace(initialTab))
+            {
+                editor.OpenTab(initialTab);
+            }
             editor.Activate();
             return;
         }
 
-        editor = new EditorForm(config);
+        editor = new EditorForm(config, updateService, initialTab);
         editor.ConfigChanged += nextConfig =>
         {
             config = nextConfig;
@@ -72,6 +90,34 @@ internal sealed class CrosshairApplicationContext : ApplicationContext
             store.SaveAtomic(config);
         };
         editor.Show();
+    }
+
+    private async Task CheckForStartupUpdateAsync()
+    {
+        var info = await updateService.GetLatestAsync();
+        if (!info.IsUpdateAvailable || string.IsNullOrWhiteSpace(info.LatestVersion))
+        {
+            return;
+        }
+
+        if (string.Equals(config.LastPromptedUpdateVersion, info.LatestVersion, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        config.LastPromptedUpdateVersion = info.LatestVersion;
+        store.SaveAtomic(config);
+
+        var result = MessageBox.Show(
+            $"Доступна новая версия Crosslay {info.LatestVersion}.\n\nТекущая версия: {info.CurrentVersion}\n\nСкачать установщик?",
+            "Обновление Crosslay",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Information);
+
+        if (result == DialogResult.Yes)
+        {
+            UpdateService.OpenDownload(info);
+        }
     }
 
     private void SelectProfile(string profileId)
