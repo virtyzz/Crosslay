@@ -5,8 +5,6 @@ namespace CrosshairMarker;
 
 internal sealed class AppConfig
 {
-    public const int FreeProfileLimit = 3;
-
     public bool OverlayVisible { get; set; } = true;
     public string? TargetMonitorDeviceName { get; set; }
     public string ActiveProfileId { get; set; } = "default";

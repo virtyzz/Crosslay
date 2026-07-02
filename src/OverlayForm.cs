@@ -1,4 +1,5 @@
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using Microsoft.Win32;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
@@ -80,8 +81,64 @@ internal sealed class OverlayForm : Form
             return;
         }
 
+        var screen = MonitorInfo.ResolveScreen(targetMonitorDeviceName);
         using var bitmap = CrosshairRenderer.RenderBitmap(ClientSize, profile);
+        ClearOutsideWorkingArea(bitmap, screen);
         ApplyLayeredBitmap(bitmap);
+    }
+
+    private static void ClearOutsideWorkingArea(Bitmap bitmap, Screen screen)
+    {
+        var bounds = screen.Bounds;
+        var workingArea = screen.WorkingArea;
+        if (workingArea == bounds)
+        {
+            return;
+        }
+
+        using var graphics = Graphics.FromImage(bitmap);
+        graphics.CompositingMode = CompositingMode.SourceCopy;
+        using var transparent = new SolidBrush(Color.Transparent);
+
+        if (workingArea.Top > bounds.Top)
+        {
+            graphics.FillRectangle(
+                transparent,
+                0,
+                0,
+                bitmap.Width,
+                workingArea.Top - bounds.Top);
+        }
+
+        if (workingArea.Bottom < bounds.Bottom)
+        {
+            graphics.FillRectangle(
+                transparent,
+                0,
+                workingArea.Bottom - bounds.Top,
+                bitmap.Width,
+                bounds.Bottom - workingArea.Bottom);
+        }
+
+        if (workingArea.Left > bounds.Left)
+        {
+            graphics.FillRectangle(
+                transparent,
+                0,
+                0,
+                workingArea.Left - bounds.Left,
+                bitmap.Height);
+        }
+
+        if (workingArea.Right < bounds.Right)
+        {
+            graphics.FillRectangle(
+                transparent,
+                workingArea.Right - bounds.Left,
+                0,
+                bounds.Right - workingArea.Right,
+                bitmap.Height);
+        }
     }
 
     private void PinToDesktop()

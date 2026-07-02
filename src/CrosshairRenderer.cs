@@ -6,6 +6,12 @@ namespace CrosshairMarker;
 
 internal static class CrosshairRenderer
 {
+    private static readonly object ImageCacheLock = new();
+    private static string? cachedImagePath;
+    private static DateTime cachedImageWriteTimeUtc;
+    private static long cachedImageLength;
+    private static Bitmap? cachedImage;
+
     public static Bitmap RenderBitmap(Size size, CrosshairProfile profile)
     {
         var bitmap = new Bitmap(size.Width, size.Height, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
@@ -56,7 +62,7 @@ internal static class CrosshairRenderer
 
         try
         {
-            using var image = LoadImage(layer.Path!);
+            var image = GetCachedImage(layer.Path!);
             var scale = Math.Clamp(layer.ScalePercent, 1, 400) / 100f;
             var width = image.Width * scale;
             var height = image.Height * scale;
@@ -102,6 +108,28 @@ internal static class CrosshairRenderer
         using var stream = File.OpenRead(path);
         using var image = Image.FromStream(stream);
         return new Bitmap(image);
+    }
+
+    private static Bitmap GetCachedImage(string path)
+    {
+        var info = new FileInfo(path);
+        lock (ImageCacheLock)
+        {
+            if (cachedImage is not null
+                && string.Equals(cachedImagePath, path, StringComparison.OrdinalIgnoreCase)
+                && cachedImageWriteTimeUtc == info.LastWriteTimeUtc
+                && cachedImageLength == info.Length)
+            {
+                return cachedImage;
+            }
+
+            cachedImage?.Dispose();
+            cachedImage = LoadImage(path);
+            cachedImagePath = path;
+            cachedImageWriteTimeUtc = info.LastWriteTimeUtc;
+            cachedImageLength = info.Length;
+            return cachedImage;
+        }
     }
 
     private static void DrawOutline(Graphics graphics, PointF center, CrosshairProfile profile)

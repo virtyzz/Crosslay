@@ -110,6 +110,9 @@ internal sealed class EditorForm : Form
                 case "updateConfig":
                     ApplyConfigFromWeb(root.GetProperty("config"));
                     break;
+                case "previewConfig":
+                    await ApplyPreviewConfigFromWebAsync(root.GetProperty("config"));
+                    break;
                 case "command":
                     await HandleCommandAsync(root.GetProperty("name").GetString());
                     break;
@@ -135,6 +138,19 @@ internal sealed class EditorForm : Form
         config = next;
         config.Normalize();
         EmitChanged();
+    }
+
+    private async Task ApplyPreviewConfigFromWebAsync(JsonElement configElement)
+    {
+        var next = configElement.Deserialize<AppConfig>(JsonOptions);
+        if (next is null)
+        {
+            return;
+        }
+
+        config = next;
+        config.Normalize();
+        await SendStateAsync();
     }
 
     private async Task HandleCommandAsync(string? name)
@@ -563,6 +579,27 @@ input[type="color"] {
 .action.danger {
   color: #f0aab1;
 }
+.profile-list {
+  display: grid;
+  gap: 8px;
+  max-height: 260px;
+  overflow: auto;
+}
+.profile-list button {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #19191d;
+  color: var(--text);
+  text-align: left;
+  padding: 0 12px;
+  cursor: pointer;
+}
+.profile-list button.active {
+  background: #2c2419;
+  border-color: #614720;
+  color: var(--accent);
+}
 .update-status {
   display: grid;
   gap: 8px;
@@ -659,6 +696,9 @@ const bridge = window.chrome.webview;
 let state = null;
 let activeTab = "crosshair";
 let hotkeyCapture = null;
+let pendingConfig = null;
+let pendingConfigTimer = null;
+let selectedProfileId = null;
 
 const defaultHotkeys = {
   ToggleOverlay: { Enabled: true, Key: "X", Control: true, Alt: true, Shift: false, Win: false },
@@ -683,6 +723,46 @@ function post(message) {
   bridge.postMessage(message);
 }
 
+function postConfig(config, options = {}) {
+  if (options.previewOnly) {
+    post({ type: "previewConfig", config });
+    return;
+  }
+
+  if (!options.debounce) {
+    clearPendingConfig();
+    post({ type: "updateConfig", config });
+    return;
+  }
+
+  const interval = Number(options.debounce) || 120;
+  pendingConfig = clone(config);
+  if (pendingConfigTimer) {
+    return;
+  }
+
+  flushPendingConfig();
+  pendingConfigTimer = setTimeout(() => {
+    pendingConfigTimer = null;
+    if (pendingConfig) {
+      flushPendingConfig();
+    }
+  }, interval);
+}
+
+function flushPendingConfig() {
+  if (!pendingConfig) return;
+  const config = pendingConfig;
+  pendingConfig = null;
+  post({ type: "updateConfig", config });
+}
+
+function clearPendingConfig() {
+  clearTimeout(pendingConfigTimer);
+  pendingConfigTimer = null;
+  pendingConfig = null;
+}
+
 function profile() {
   return state.config.Profiles.find(item => item.Id === state.config.ActiveProfileId) || state.config.Profiles[0];
 }
@@ -698,7 +778,7 @@ function update(mutator, options = {}) {
   if (options.render !== false) {
     render();
   }
-  post({ type: "updateConfig", config: next });
+  postConfig(next, options);
 }
 
 function updateProfile(mutator, options = {}) {
@@ -710,6 +790,12 @@ function updateProfile(mutator, options = {}) {
 
 function activeProfile(config) {
   return config.Profiles.find(item => item.Id === config.ActiveProfileId) || config.Profiles[0];
+}
+
+function selectedProfile(config = state.config) {
+  return config.Profiles.find(item => item.Id === selectedProfileId)
+    || activeProfile(config)
+    || config.Profiles[0];
 }
 
 function newId() {
@@ -787,14 +873,14 @@ function render() {
 
 function isEditingValueControl() {
   const active = document.activeElement;
-  return !!active?.matches?.("[data-slider], [data-number], [data-color], [data-color-all], [data-check], [data-select]");
+  return !!active?.matches?.("[data-slider], [data-number], [data-color], [data-color-all], [data-check], [data-select], input[type='text']");
 }
 
 function renderSidebar() {
   const select = document.getElementById("profileSelect");
   select.innerHTML = state.config.Profiles.map(p => `<option value="${p.Id}" ${p.Id === state.config.ActiveProfileId ? "selected" : ""}>${escapeHtml(p.Name)}</option>`).join("");
   document.getElementById("nav").innerHTML = tabs.map(([id, label]) => `<button class="${id === activeTab ? "active" : ""}" data-tab="${id}">${label}</button>`).join("");
-  document.getElementById("profileLimit").textContent = `${state.config.Profiles.length} / 3 профиля в бесплатной версии`;
+  document.getElementById("profileLimit").textContent = `${state.config.Profiles.length} профилей`;
 }
 
 function renderEditor() {
@@ -804,7 +890,7 @@ function renderEditor() {
     image: renderImage(),
     hotkeys: renderHotkeys(),
     monitor: renderMonitor(),
-    profiles: renderProfiles(p),
+    profiles: renderProfiles(),
     updates: renderUpdates()
   };
   document.getElementById("editor").innerHTML = `<div class="section active">${sections[activeTab]}</div>`;
@@ -953,7 +1039,7 @@ function renderImage() {
   return `
     <h2>Изображение</h2>
     ${check("Включить изображение", "ImageLayer.Enabled")}
-    ${slider("Масштаб", "ImageLayer.ScalePercent", 10, 400)}
+    ${slider("Масштаб", "ImageLayer.ScalePercent", 1, 400)}
     ${slider("Прозрачность", "ImageLayer.Opacity", 0, 255)}
     ${slider("Поворот", "ImageLayer.Rotation", 0, 359)}
     ${slider("Смещение X", "ImageLayer.OffsetX", -500, 500)}
@@ -992,10 +1078,17 @@ function renderMonitor() {
   return `<h2>Монитор</h2>${field("Целевой монитор", { input: `<select id="monitorSelect">${options}</select>` })}`;
 }
 
-function renderProfiles(p) {
+function renderProfiles() {
+  const selected = selectedProfile();
+  const list = state.config.Profiles.map(profile => `
+    <button type="button" class="${profile.Id === selected.Id ? "active" : ""}" data-profile-select="${profile.Id}">
+      ${escapeHtml(profile.Name)}
+    </button>
+  `).join("");
   return `
     <h2>Профили</h2>
-    ${text("Название профиля", "profileName", p.Name)}
+    ${field("Список профилей", { input: `<div class="profile-list">${list}</div>` })}
+    ${text("Название профиля", "profileName", selected.Name)}
     <div class="actions">
       <button class="action primary" data-profile="add">Добавить</button>
       <button class="action" data-profile="duplicate">Дублировать</button>
@@ -1039,14 +1132,25 @@ function renderUpdates() {
 
 function bindEditorEvents() {
   document.querySelectorAll("[data-slider]").forEach(input => {
+    const isImageSlider = input.dataset.slider.startsWith("ImageLayer.");
     input.addEventListener("input", () => {
       const value = Number(input.value);
       const number = input.closest(".slider-row")?.querySelector("[data-number]");
       const label = input.closest(".field")?.querySelector(".value");
       if (number) number.value = value;
       if (label) label.textContent = value;
-      updateProfile(p => setPath(p, input.dataset.slider, value), { render: false });
+      const options = isImageSlider
+        ? { render: false, previewOnly: true }
+        : { render: false };
+      updateProfile(p => setPath(p, input.dataset.slider, value), options);
       syncPresetButtons();
+    });
+    input.addEventListener("change", () => {
+      if (isImageSlider) {
+        postConfig(state.config);
+      } else {
+        flushPendingConfig();
+      }
     });
   });
   document.querySelectorAll("[data-number]").forEach(input => {
@@ -1076,6 +1180,7 @@ function bindEditorEvents() {
       target.G = parseInt(input.value.slice(3, 5), 16);
       target.B = parseInt(input.value.slice(5, 7), 16);
     }, { render: false }));
+    input.addEventListener("change", flushPendingConfig);
   });
   document.querySelectorAll("[data-color-all]").forEach(input => {
     input.addEventListener("input", () => {
@@ -1094,6 +1199,7 @@ function bindEditorEvents() {
       p.DotColor.B = b;
       }, { render: false });
     });
+    input.addEventListener("change", flushPendingConfig);
   });
   document.querySelectorAll("[data-preset]").forEach(button => {
     button.addEventListener("click", () => updateProfile(p => applyPreset(p, button.dataset.preset)));
@@ -1126,7 +1232,21 @@ function bindEditorEvents() {
     button.addEventListener("click", () => update(config => config.Hotkeys[button.dataset.hotkeyDefault] = clone(defaultHotkeys[button.dataset.hotkeyDefault])));
   });
   const name = document.getElementById("profileName");
-  if (name) name.addEventListener("input", () => updateProfile(p => p.Name = name.value.trim() || "Прицел"));
+  if (name) name.addEventListener("input", () => {
+    const nextName = name.value.trim() || String.fromCharCode(1055, 1088, 1080, 1094, 1077, 1083);
+    const targetId = activeTab === "profiles" ? selectedProfile().Id : state.config.ActiveProfileId;
+    if (targetId === state.config.ActiveProfileId) {
+      document.getElementById("activeProfileName").textContent = nextName;
+    }
+    const selected = Array.from(document.querySelectorAll("#profileSelect option"))
+      .find(option => option.value === targetId);
+    if (selected) selected.textContent = nextName;
+    update(config => {
+      const target = config.Profiles.find(p => p.Id === targetId);
+      if (target) target.Name = nextName;
+    }, { render: false, debounce: 250 });
+  });
+  if (name) name.addEventListener("change", flushPendingConfig);
   const monitor = document.getElementById("monitorSelect");
   if (monitor) monitor.addEventListener("change", () => update(config => config.TargetMonitorDeviceName = monitor.value));
 }
@@ -1257,28 +1377,41 @@ document.getElementById("profileSelect").addEventListener("change", event => {
 document.getElementById("refreshMonitors").addEventListener("click", () => post({ type: "command", name: "refreshMonitors" }));
 
 document.addEventListener("click", event => {
+  const profileButton = event.target.closest("[data-profile-select]");
+  if (!profileButton) return;
+  selectedProfileId = profileButton.dataset.profileSelect;
+  render();
+});
+
+document.addEventListener("click", event => {
   const button = event.target.closest("[data-profile]");
   if (!button) return;
   const action = button.dataset.profile;
   update(config => {
-    const current = activeProfile(config);
-    if (action === "add" && config.Profiles.length < 3) {
-      const item = clone(current);
+    const current = selectedProfile(config);
+    if (action === "add") {
+      const item = clone(activeProfile(config));
       item.Id = newId();
-      item.Name = "Новый прицел";
+      item.Name = String.fromCharCode(1053, 1086, 1074, 1099, 1081, 32, 1087, 1088, 1080, 1094, 1077, 1083);
       config.Profiles.push(item);
       config.ActiveProfileId = item.Id;
-    } else if (action === "duplicate" && config.Profiles.length < 3) {
+      selectedProfileId = item.Id;
+    } else if (action === "duplicate") {
       const item = clone(current);
       item.Id = newId();
       item.Name = current.Name + " copy";
       config.Profiles.push(item);
       config.ActiveProfileId = item.Id;
+      selectedProfileId = item.Id;
     } else if (action === "delete" && config.Profiles.length > 1) {
       config.Profiles = config.Profiles.filter(p => p.Id !== current.Id);
-      config.ActiveProfileId = config.Profiles[0].Id;
+      if (config.Profiles.every(p => p.Id !== config.ActiveProfileId)) {
+        config.ActiveProfileId = config.Profiles[0].Id;
+      }
+      selectedProfileId = config.ActiveProfileId;
     } else if (action === "reset") {
       const index = config.Profiles.findIndex(p => p.Id === current.Id);
+      if (index < 0) return;
       config.Profiles[index] = {
         Id: current.Id,
         Name: current.Name,
@@ -1301,6 +1434,7 @@ document.addEventListener("click", event => {
         OutlineColor: { R: 0, G: 0, B: 0, A: 180 },
         ImageLayer: { Enabled: false, Path: null, ScalePercent: 100, Opacity: 255, Rotation: 0, OffsetX: 0, OffsetY: 0, AnchorX: null, AnchorY: null }
       };
+      selectedProfileId = current.Id;
     }
   });
 });
