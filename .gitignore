@@ -1,0 +1,28 @@
+# Build outputs
+bin/
+obj/
+_build_check/
+
+# IDE/user-local files
+.vs/
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Runtime/local app data
+*.log
+*.tmp
+*.bak
+*.pdb
+*.cache
+
+# NuGet
+*.nupkg
+packages/
+
+# OS noise
+Thumbs.db
+Desktop.ini
+
