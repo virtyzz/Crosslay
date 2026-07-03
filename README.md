@@ -1,60 +1,83 @@
 # Crosslay
 
-Lightweight Windows MVP for an external crosshair overlay. It draws a static user-defined crosshair in a transparent, frameless, always-on-top, click-through window and keeps configuration in a local JSON file.
+<p align="center">
+  <img src="assets/crosslay-preview.png" alt="Crosslay preview" width="480">
+</p>
 
-## Implementation Plan
+<p align="center">
+  <a href="#ru">Русский</a> · <a href="#en">English</a>
+</p>
 
-1. Base overlay: tray app, transparent topmost no-focus window, click-through input, procedural crosshair rendering, local `config.json`.
-2. Basic editor: live controls for length, gap, thickness, opacity, dot, T-shape, outline, color, and atomic save.
-3. Profiles and hotkeys: multiple profiles, active profile switching, global hotkeys through OS APIs, monitor/DPI selection.
-4. Import pipeline: PNG/JPG import first, then SVG through safe raster cache, then freehand canvas as a separate editor mode.
-5. Packaging: signed Windows build, compatibility notes, public anti-cheat policy, later native Qt/C++ port if strict RAM/distribution budgets are mandatory.
+<p align="center">
+  <a href="https://github.com/virtyzz/Crosslay/releases/latest">
+    <img src="https://img.shields.io/github/v/release/virtyzz/Crosslay?style=for-the-badge&label=latest" alt="Latest release">
+  </a>
+</p>
 
-This MVP intentionally avoids DLL injection, process memory access, game rendering hooks, screen capture, OCR, object detection, and input automation.
+<a id="ru"></a>
 
-## Build
+## Русский
 
-```powershell
-dotnet build
-```
+**Crosslay** - аккуратный оверлей прицела для Windows. Он помогает быстро настроить удобный прицел поверх экрана: от простого крестика до профилей с точкой, обводкой, цветом, прозрачностью и изображением.
 
-## Publish
+Приложение работает как обычное прозрачное окно поверх экрана. Crosslay не внедряется в игры, не читает память процессов, не использует хуки рендера и не автоматизирует ввод.
 
-Create a Windows installer from GitHub Actions by pushing a version tag:
+### Скачать
 
-```powershell
-git tag v0.1.0
-git push origin v0.1.0
-```
+<p>
+  <a href="https://github.com/virtyzz/Crosslay/releases/latest/download/Crosslay-Setup-latest.exe">
+    <img src="https://img.shields.io/badge/Скачать-установщик-eeb15b?style=for-the-badge&logo=windows&logoColor=111111" alt="Скачать установщик">
+  </a>
+</p>
 
-The workflow builds a self-contained `win-x64` app, creates `Crosslay-Setup-<version>.exe`, uploads it as an Actions artifact, and attaches it to the matching GitHub Release.
+Скачайте установщик, запустите его и следуйте шагам установки. После запуска Crosslay появится в трее: двойной клик открывает редактор, правый клик открывает меню.
 
-Crosslay uses WebView2 for the editor. Windows 10/11 usually includes the WebView2 Runtime; if it is missing, install the Microsoft Edge WebView2 Runtime.
+### Что умеет
 
-## Run
+- Настраиваемый прицел: длина, зазор, толщина, цвет, прозрачность, точка и обводка.
+- Несколько профилей для разных игр, мониторов или настроений.
+- Быстрое включение и выключение прицела из трея или горячей клавишей.
+- Выбор монитора, если у вас несколько экранов.
+- Импорт PNG/JPG как отдельного слоя прицела.
+- Проверка обновлений с понятным описанием изменений.
 
-```powershell
-dotnet run
-```
+### Горячие клавиши
 
-The tray icon opens the editor on double-click. Right-click it to show/hide the overlay or exit.
+- `Ctrl+Alt+X` - показать или скрыть прицел.
+- `Ctrl+Alt+Left/Right` - предыдущий или следующий профиль.
+- `Ctrl+Alt+Up/Down` - изменить прозрачность.
+- `Ctrl+Alt+PageUp/PageDown` - изменить размер.
 
-The editor includes a monitor selector. The overlay falls back to the primary monitor if the saved monitor is disconnected.
+<a id="en"></a>
 
-PNG and JPG images can be imported as an image layer. Imported files are copied into `%APPDATA%\Crosslay\assets`, then drawn with configurable scale, opacity, offset, and anchor point. `Offset X/Y` moves the whole image; `Anchor X/Y` selects the image pixel that should align with the crosshair center when offset is zero.
+## English
 
-The procedural crosshair layer can be disabled with `Procedural enabled`, leaving only the imported image layer visible.
+**Crosslay** is a clean Windows crosshair overlay. It helps you set up a comfortable on-screen crosshair, from a simple cross to profiles with a dot, outline, color, opacity, and image layer.
 
-## Hotkeys
+The app works as a normal transparent always-on-top window. Crosslay does not inject into games, read process memory, use render hooks, or automate input.
 
-Hotkeys are editable in the editor. Click a hotkey field and press the desired combination. Use `Clear` to disable an action or `Default` to restore its default binding. `Backspace` or `Delete` in a field also disables that action.
+### Download
 
-Default bindings:
+<p>
+  <a href="https://github.com/virtyzz/Crosslay/releases/latest/download/Crosslay-Setup-latest.exe">
+    <img src="https://img.shields.io/badge/Download-installer-eeb15b?style=for-the-badge&logo=windows&logoColor=111111" alt="Download installer">
+  </a>
+</p>
 
-- `Ctrl+Alt+X`: show/hide overlay.
-- `Ctrl+Alt+Left`: previous profile.
-- `Ctrl+Alt+Right`: next profile.
-- `Ctrl+Alt+Up`: increase crosshair opacity.
-- `Ctrl+Alt+Down`: decrease crosshair opacity.
-- `Ctrl+Alt+PageUp`: increase size.
-- `Ctrl+Alt+PageDown`: decrease size.
+Download the installer, run it, and follow the setup steps. After launch, Crosslay lives in the tray: double-click opens the editor, right-click opens the menu.
+
+### What It Does
+
+- Custom crosshair controls: length, gap, thickness, color, opacity, dot, and outline.
+- Multiple profiles for different games, monitors, or preferences.
+- Quick show/hide from the tray or with a hotkey.
+- Monitor selection for multi-display setups.
+- PNG/JPG import as a separate crosshair layer.
+- Update checks with readable release notes.
+
+### Hotkeys
+
+- `Ctrl+Alt+X` - show or hide the overlay.
+- `Ctrl+Alt+Left/Right` - previous or next profile.
+- `Ctrl+Alt+Up/Down` - adjust opacity.
+- `Ctrl+Alt+PageUp/PageDown` - adjust size.

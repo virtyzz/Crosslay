@@ -63,6 +63,7 @@ jobs:
         shell: pwsh
         run: |
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" .\installer\Crosslay.iss
+          Copy-Item .\artifacts\installer\Crosslay-Setup-$env:CROSSLAY_VERSION.exe .\artifacts\installer\Crosslay-Setup-latest.exe
 
       - name: Build release notes
         if: github.ref_type == 'tag'
@@ -146,12 +147,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = "${{ github.ref_name }}"
-          $installer = Get-ChildItem .\artifacts\installer\*.exe | Select-Object -First 1
+          $installers = Get-ChildItem .\artifacts\installer\*.exe
 
           gh release view $tag *> $null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag $installer.FullName --clobber
+            gh release upload $tag @($installers.FullName) --clobber
             gh release edit $tag --notes-file .\artifacts\release_notes.md
           } else {
-            gh release create $tag $installer.FullName --title "Crosslay $tag" --notes-file .\artifacts\release_notes.md
+            gh release create $tag @($installers.FullName) --title "Crosslay $tag" --notes-file .\artifacts\release_notes.md
           }
