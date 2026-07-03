@@ -69,6 +69,12 @@ jobs:
         shell: pwsh
         run: |
           $tag = "${{ github.ref_name }}"
+          $manualNotes = ".\.github\release-notes\$tag.md"
+          if (Test-Path $manualNotes) {
+            Copy-Item $manualNotes .\artifacts\release_notes.md
+            exit 0
+          }
+
           $previousTag = git describe --tags --abbrev=0 "$tag^" 2>$null
           if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($previousTag)) {
             $range = $tag
