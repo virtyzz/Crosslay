@@ -64,6 +64,69 @@ jobs:
         run: |
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" .\installer\Crosslay.iss
 
+      - name: Build release notes
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $previousTag = git describe --tags --abbrev=0 "$tag^" 2>$null
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($previousTag)) {
+            $range = $tag
+            $compareUrl = ""
+          } else {
+            $range = "$previousTag..$tag"
+            $compareUrl = "https://github.com/${{ github.repository }}/compare/$previousTag...$tag"
+          }
+
+          $commits = git log $range --pretty=format:"%s"
+          $added = New-Object System.Collections.Generic.List[string]
+          $fixed = New-Object System.Collections.Generic.List[string]
+          $changed = New-Object System.Collections.Generic.List[string]
+
+          foreach ($commit in $commits) {
+            $text = ($commit -replace '^\s*(feat|fix|chore|docs|style|refactor|perf|test|build|ci)(\([^)]+\))?!?:\s*', '').Trim()
+            if ([string]::IsNullOrWhiteSpace($text)) {
+              continue
+            }
+
+            $item = "- " + $text.Substring(0, 1).ToUpperInvariant() + $text.Substring(1)
+            if ($commit -match '^\s*(feat)(\([^)]+\))?!?:') {
+              $added.Add($item)
+            } elseif ($commit -match '^\s*(fix|perf)(\([^)]+\))?!?:') {
+              $fixed.Add($item)
+            } else {
+              $changed.Add($item)
+            }
+          }
+
+          $notes = New-Object System.Collections.Generic.List[string]
+          $notes.Add("## Что изменилось")
+          if ($added.Count -gt 0) {
+            $notes.Add("")
+            $notes.Add("### Добавлено")
+            $notes.AddRange($added)
+          }
+          if ($fixed.Count -gt 0) {
+            $notes.Add("")
+            $notes.Add("### Исправлено")
+            $notes.AddRange($fixed)
+          }
+          if ($changed.Count -gt 0) {
+            $notes.Add("")
+            $notes.Add("### Изменено")
+            $notes.AddRange($changed)
+          }
+          if ($added.Count + $fixed.Count + $changed.Count -eq 0) {
+            $notes.Add("")
+            $notes.Add("- Исправления и улучшения стабильности.")
+          }
+          if ($compareUrl) {
+            $notes.Add("")
+            $notes.Add("[Полный список изменений]($compareUrl)")
+          }
+
+          $notes | Set-Content -Path .\artifacts\release_notes.md -Encoding UTF8
+
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
@@ -82,6 +145,7 @@ jobs:
           gh release view $tag *> $null
           if ($LASTEXITCODE -eq 0) {
             gh release upload $tag $installer.FullName --clobber
+            gh release edit $tag --notes-file .\artifacts\release_notes.md
           } else {
-            gh release create $tag $installer.FullName --title "Crosslay $tag" --generate-notes
+            gh release create $tag $installer.FullName --title "Crosslay $tag" --notes-file .\artifacts\release_notes.md
           }

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 
 namespace CrosshairMarker;
 
@@ -54,7 +55,7 @@ internal sealed class UpdateService
                 IsUpdateAvailable: IsNewerVersion(latestVersion, CurrentVersionText),
                 ReleaseUrl: release.HtmlUrl,
                 InstallerUrl: installerUrl,
-                ReleaseNotes: release.Body ?? "",
+                ReleaseNotes: BuildDisplayReleaseNotes(release.Body),
                 PublishedAt: release.PublishedAt,
                 ErrorMessage: null);
         }
@@ -131,6 +132,27 @@ internal sealed class UpdateService
         }
 
         return clean;
+    }
+
+    private static string BuildDisplayReleaseNotes(string? body)
+    {
+        var clean = string.IsNullOrWhiteSpace(body) ? "" : body.Trim();
+        if (clean.Length > 0)
+        {
+            clean = Regex.Replace(clean, @"(?im)^\s*\*\*Full Changelog\*\*:.*$", "").Trim();
+            clean = Regex.Replace(clean, @"(?im)^\s*Full Changelog:.*$", "").Trim();
+        }
+
+        if (!string.IsNullOrWhiteSpace(clean))
+        {
+            return clean;
+        }
+
+        return """
+Изменения в релизе:
+- Исправления и улучшения стабильности.
+- Подробный список изменений доступен на странице релиза.
+""";
     }
 
     private sealed class GitHubRelease
