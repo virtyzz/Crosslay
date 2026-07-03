@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/virtyzz/Crosslay/releases/latest">
-    <img src="https://img.shields.io/github/v/release/virtyzz/Crosslay?style=for-the-badge&label=latest" alt="Latest release">
+    <img src="https://img.shields.io/github/v/release/virtyzz/Crosslay?display_name=tag&style=for-the-badge&label=latest&color=555555&cacheSeconds=300" alt="Latest release">
   </a>
 </p>
 
