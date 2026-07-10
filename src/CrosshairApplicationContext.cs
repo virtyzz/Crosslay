@@ -17,8 +17,10 @@ internal sealed class CrosshairApplicationContext : ApplicationContext
         store = new ConfigStore();
         updateService = new UpdateService();
         config = store.Load();
+        StartupManager.SetEnabled(config.StartWithWindows);
         overlay = new OverlayForm();
         overlay.ApplyMonitor(config.TargetMonitorDeviceName);
+        overlay.ApplyWindowSize(config.OverlayWindowSize);
         overlay.ApplyProfile(config.CurrentProfile);
 
         if (config.OverlayVisible)
@@ -38,6 +40,11 @@ internal sealed class CrosshairApplicationContext : ApplicationContext
         hotkeys = new HotkeyManager();
         RegisterConfiguredHotkeys();
         _ = CheckForStartupUpdateAsync();
+
+        if (!config.StartMinimizedToTray)
+        {
+            OpenEditor();
+        }
     }
 
     private void ToggleOverlay()
@@ -81,14 +88,26 @@ internal sealed class CrosshairApplicationContext : ApplicationContext
         editor = new EditorForm(config, updateService, initialTab);
         editor.ConfigChanged += nextConfig =>
         {
+            var startupChanged = config.StartWithWindows != nextConfig.StartWithWindows;
             config = nextConfig;
             config.Normalize();
+            if (startupChanged)
+            {
+                StartupManager.SetEnabled(config.StartWithWindows);
+            }
             overlay.ApplyMonitor(config.TargetMonitorDeviceName);
+            overlay.ApplyWindowSize(config.OverlayWindowSize);
             overlay.ApplyProfile(config.CurrentProfile);
             tray.SetProfiles(config.Profiles, config.ActiveProfileId);
             RegisterConfiguredHotkeys();
             store.SaveAtomic(config);
         };
+        editor.MonitorChanged += deviceName =>
+        {
+            config.EditorMonitorDeviceName = deviceName;
+            store.SaveAtomic(config);
+        };
+        editor.ExitRequested += ExitApplication;
         editor.Show();
     }
 

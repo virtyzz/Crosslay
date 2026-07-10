@@ -16,6 +16,7 @@ internal sealed class OverlayForm : Form
     private readonly System.Windows.Forms.Timer watchdogTimer = new();
     private CrosshairProfile profile = CrosshairProfile.Default();
     private string? targetMonitorDeviceName;
+    private OverlayWindowSize windowSize = OverlayWindowSize.Compact200;
     private DateTime lastWatchdogLogUtc = DateTime.MinValue;
 
     public OverlayForm()
@@ -55,6 +56,16 @@ internal sealed class OverlayForm : Form
     public void ApplyMonitor(string? deviceName)
     {
         targetMonitorDeviceName = deviceName;
+        if (IsHandleCreated)
+        {
+            PinToDesktop();
+            UpdateLayeredBitmap();
+        }
+    }
+
+    public void ApplyWindowSize(OverlayWindowSize nextWindowSize)
+    {
+        windowSize = nextWindowSize;
         if (IsHandleCreated)
         {
             PinToDesktop();
@@ -171,7 +182,44 @@ internal sealed class OverlayForm : Form
 
     private void PinToDesktop()
     {
-        Bounds = MonitorInfo.ResolveScreen(targetMonitorDeviceName).Bounds;
+        var screen = MonitorInfo.ResolveScreen(targetMonitorDeviceName);
+        Bounds = GetOverlayBounds(screen);
+        SetOverlayTopmost();
+    }
+
+    private Rectangle GetOverlayBounds(Screen screen)
+    {
+        var bounds = screen.Bounds;
+        var scale = windowSize switch
+        {
+            OverlayWindowSize.QuarterScreen => 0.25,
+            OverlayWindowSize.HalfScreen => 0.5,
+            OverlayWindowSize.ThreeQuartersScreen => 0.75,
+            OverlayWindowSize.FullScreen => 1.0,
+            _ => 0.0
+        };
+
+        if (scale == 0.0)
+        {
+            const int compactSize = 200;
+            return new Rectangle(
+                bounds.Left + (bounds.Width - compactSize) / 2,
+                bounds.Top + (bounds.Height - compactSize) / 2,
+                compactSize,
+                compactSize);
+        }
+
+        var width = Math.Max(1, (int)Math.Round(bounds.Width * scale));
+        var height = Math.Max(1, (int)Math.Round(bounds.Height * scale));
+        return new Rectangle(
+            bounds.Left + (bounds.Width - width) / 2,
+            bounds.Top + (bounds.Height - height) / 2,
+            width,
+            height);
+    }
+
+    private void SetOverlayTopmost()
+    {
         if (!NativeMethods.SetWindowPos(
             Handle,
             NativeMethods.HWND_TOPMOST,

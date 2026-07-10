@@ -23,6 +23,8 @@ internal sealed class EditorForm : Form
     private bool webReady;
 
     public event Action<AppConfig>? ConfigChanged;
+    public event Action<string?>? MonitorChanged;
+    public event Action? ExitRequested;
 
     public EditorForm(AppConfig source, UpdateService updateService, string? initialTab = null)
     {
@@ -33,15 +35,22 @@ internal sealed class EditorForm : Form
 
         Text = "Crosslay";
         Icon = AppIcons.MainIcon();
-        StartPosition = FormStartPosition.CenterScreen;
+        StartPosition = FormStartPosition.Manual;
         MinimumSize = new Size(1060, 700);
         Size = new Size(1240, 780);
         BackColor = Color.FromArgb(11, 11, 12);
+
+        var screen = MonitorInfo.ResolveScreen(config.EditorMonitorDeviceName);
+        var workingArea = screen.WorkingArea;
+        Location = new Point(
+            workingArea.Left + Math.Max(0, (workingArea.Width - Width) / 2),
+            workingArea.Top + Math.Max(0, (workingArea.Height - Height) / 2));
 
         webView.Dock = DockStyle.Fill;
         Controls.Add(webView);
 
         Shown += async (_, _) => await InitializeWebViewAsync();
+        FormClosed += (_, _) => MonitorChanged?.Invoke(Screen.FromRectangle(Bounds).DeviceName);
     }
 
     public void OpenTab(string tab)
@@ -172,6 +181,9 @@ internal sealed class EditorForm : Form
                     updateInfo = await updateService.GetLatestAsync();
                 }
                 UpdateService.OpenDownload(updateInfo);
+                break;
+            case "exitApplication":
+                ExitRequested?.Invoke();
                 break;
         }
     }
@@ -611,9 +623,38 @@ input[type="color"] {
 .release-notes {
   max-height: 260px;
   overflow: auto;
-  white-space: pre-wrap;
   color: var(--muted);
 }
+.release-notes > :first-child { margin-top: 0; }
+.release-notes > :last-child { margin-bottom: 0; }
+.release-notes h1, .release-notes h2, .release-notes h3,
+.release-notes h4, .release-notes h5, .release-notes h6 {
+  color: var(--text);
+  margin: 16px 0 8px;
+}
+.release-notes h1 { font-size: 20px; }
+.release-notes h2 { font-size: 18px; }
+.release-notes h3, .release-notes h4, .release-notes h5, .release-notes h6 { font-size: 16px; }
+.release-notes p { margin: 0 0 10px; }
+.release-notes ul, .release-notes ol { margin: 0 0 10px; padding-left: 24px; }
+.release-notes li + li { margin-top: 4px; }
+.release-notes a { color: var(--accent); }
+.release-notes code {
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: #25252b;
+  color: var(--text);
+  font-family: Consolas, monospace;
+}
+.release-notes pre {
+  margin: 0 0 10px;
+  padding: 10px;
+  overflow: auto;
+  border-radius: 6px;
+  background: #25252b;
+  color: var(--text);
+}
+.release-notes pre code { padding: 0; background: none; }
 .preview-wrap {
   padding: 14px;
   display: grid;
@@ -675,7 +716,7 @@ input[type="color"] {
       <select id="profileSelect" class="profile-select"></select>
       <div class="nav" id="nav"></div>
       <div class="limit" id="profileLimit"></div>
-      <button class="action" id="refreshMonitors">Обновить мониторы</button>
+      <button class="action danger" id="exitApplication">Выйти из приложения</button>
     </aside>
 
     <section class="panel editor" id="editor"></section>
@@ -711,6 +752,7 @@ const defaultHotkeys = {
 };
 
 const tabs = [
+  ["general", "Общие"],
   ["crosshair", "Прицел"],
   ["image", "Изображение"],
   ["hotkeys", "Горячие клавиши"],
@@ -863,6 +905,83 @@ function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[ch]));
 }
 
+function renderMarkdown(markdown) {
+  const inline = value => escapeHtml(value)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/__([^_]+)__/g, "<strong>$1</strong>")
+    .replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, "<em>$1</em>")
+    .replace(/(?<!_)_([^_]+)_(?!_)/g, "<em>$1</em>")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, label, url) => `<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`);
+
+  const lines = String(markdown).replace(/\r\n?/g, "\n").split("\n");
+  const output = [];
+  let paragraph = [];
+  let listType = null;
+  let code = null;
+
+  const closeParagraph = () => {
+    if (paragraph.length) {
+      output.push(`<p>${inline(paragraph.join("\n")).replace(/\n/g, "<br>")}</p>`);
+      paragraph = [];
+    }
+  };
+  const closeList = () => {
+    if (listType) {
+      output.push(`</${listType}>`);
+      listType = null;
+    }
+  };
+
+  for (const line of lines) {
+    if (line.startsWith("```")) {
+      closeParagraph();
+      closeList();
+      if (code) {
+        output.push(`<pre><code>${escapeHtml(code.join("\n"))}</code></pre>`);
+        code = null;
+      } else {
+        code = [];
+      }
+      continue;
+    }
+    if (code) {
+      code.push(line);
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,6})\s+(.+)$/);
+    const unordered = line.match(/^\s*[-*+]\s+(.+)$/);
+    const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+    if (heading) {
+      closeParagraph();
+      closeList();
+      const level = heading[1].length;
+      output.push(`<h${level}>${inline(heading[2])}</h${level}>`);
+    } else if (unordered || ordered) {
+      closeParagraph();
+      const nextType = unordered ? "ul" : "ol";
+      if (listType !== nextType) {
+        closeList();
+        listType = nextType;
+        output.push(`<${listType}>`);
+      }
+      output.push(`<li>${inline((unordered || ordered)[1])}</li>`);
+    } else if (!line.trim()) {
+      closeParagraph();
+      closeList();
+    } else {
+      closeList();
+      paragraph.push(line);
+    }
+  }
+
+  if (code) output.push(`<pre><code>${escapeHtml(code.join("\n"))}</code></pre>`);
+  closeParagraph();
+  closeList();
+  return output.join("");
+}
+
 function render() {
   if (!state) return;
   renderSidebar();
@@ -886,6 +1005,7 @@ function renderSidebar() {
 function renderEditor() {
   const p = profile();
   const sections = {
+    general: renderGeneral(),
     crosshair: renderCrosshair(),
     image: renderImage(),
     hotkeys: renderHotkeys(),
@@ -1034,6 +1154,21 @@ function renderCrosshair() {
   `;
 }
 
+function renderGeneral() {
+  return `
+    <h2>Общие</h2>
+    ${field("Запускать вместе с Windows", { value: `<input type="checkbox" ${state.config.StartWithWindows ? "checked" : ""} data-general-check="StartWithWindows">`, input: `` })}
+    ${field("Запускать свёрнутым в трей", { value: `<input type="checkbox" ${state.config.StartMinimizedToTray ? "checked" : ""} data-general-check="StartMinimizedToTray">`, input: `` })}
+    ${field("Размер окна прицела", { input: `<select data-overlay-size>
+      <option value="0" ${state.config.OverlayWindowSize === 0 ? "selected" : ""}>200 × 200 (по умолчанию)</option>
+      <option value="1" ${state.config.OverlayWindowSize === 1 ? "selected" : ""}>25% экрана</option>
+      <option value="2" ${state.config.OverlayWindowSize === 2 ? "selected" : ""}>50% экрана</option>
+      <option value="3" ${state.config.OverlayWindowSize === 3 ? "selected" : ""}>75% экрана</option>
+      <option value="4" ${state.config.OverlayWindowSize === 4 ? "selected" : ""}>100% экрана</option>
+    </select>` })}
+  `;
+}
+
 function renderImage() {
   const layer = profile().ImageLayer;
   return `
@@ -1075,7 +1210,13 @@ function renderHotkeys() {
 function renderMonitor() {
   const value = state.config.TargetMonitorDeviceName || "";
   const options = state.monitors.map(m => `<option value="${m.DeviceName}" ${m.DeviceName === value ? "selected" : ""}>${escapeHtml(m.DisplayName)}</option>`).join("");
-  return `<h2>Монитор</h2>${field("Целевой монитор", { input: `<select id="monitorSelect">${options}</select>` })}`;
+  return `
+    <h2>Монитор</h2>
+    ${field("Целевой монитор", { input: `<select id="monitorSelect">${options}</select>` })}
+    <div class="actions">
+      <button class="action" data-command="refreshMonitors">Обновить мониторы</button>
+    </div>
+  `;
 }
 
 function renderProfiles() {
@@ -1122,7 +1263,7 @@ function renderUpdates() {
   return `
     <h2>Обновление</h2>
     ${field("Статус", { input: `<div class="update-status">${status}<span>Текущая версия: ${escapeHtml(info.CurrentVersion)}</span><span>Последняя версия: ${escapeHtml(info.LatestVersion || "-")}${published ? " от " + escapeHtml(published) : ""}</span></div>` })}
-    ${field("Описание версии", { input: `<div class="release-notes">${escapeHtml(notes)}</div>` })}
+    ${field("Описание версии", { input: `<div class="release-notes">${renderMarkdown(notes)}</div>` })}
     <div class="actions">
       <button class="action" data-command="checkUpdate">Проверить снова</button>
       <button class="action primary" data-command="downloadUpdate" ${downloadDisabled}>Скачать установщик</button>
@@ -1169,6 +1310,12 @@ function bindEditorEvents() {
   });
   document.querySelectorAll("[data-check]").forEach(input => {
     input.addEventListener("change", () => updateProfile(p => setPath(p, input.dataset.check, input.checked)));
+  });
+  document.querySelectorAll("[data-general-check]").forEach(input => {
+    input.addEventListener("change", () => update(config => config[input.dataset.generalCheck] = input.checked));
+  });
+  document.querySelectorAll("[data-overlay-size]").forEach(input => {
+    input.addEventListener("change", () => update(config => config.OverlayWindowSize = Number(input.value)));
   });
   document.querySelectorAll("[data-select]").forEach(input => {
     input.addEventListener("change", () => updateProfile(p => setPath(p, input.dataset.select, Number(input.value))));
@@ -1374,7 +1521,7 @@ document.addEventListener("click", event => {
 document.getElementById("profileSelect").addEventListener("change", event => {
   update(config => config.ActiveProfileId = event.target.value);
 });
-document.getElementById("refreshMonitors").addEventListener("click", () => post({ type: "command", name: "refreshMonitors" }));
+document.getElementById("exitApplication").addEventListener("click", () => post({ type: "command", name: "exitApplication" }));
 
 document.addEventListener("click", event => {
   const profileButton = event.target.closest("[data-profile-select]");

@@ -6,7 +6,11 @@ namespace CrosshairMarker;
 internal sealed class AppConfig
 {
     public bool OverlayVisible { get; set; } = true;
+    public bool StartWithWindows { get; set; }
+    public bool StartMinimizedToTray { get; set; } = true;
     public string? TargetMonitorDeviceName { get; set; }
+    public OverlayWindowSize OverlayWindowSize { get; set; } = OverlayWindowSize.Compact200;
+    public string? EditorMonitorDeviceName { get; set; }
     public string ActiveProfileId { get; set; } = "default";
     public string? LastPromptedUpdateVersion { get; set; }
     public List<CrosshairProfile> Profiles { get; set; } = [CrosshairProfile.Default()];
@@ -37,6 +41,11 @@ internal sealed class AppConfig
 
         Hotkeys ??= new HotkeyBindings();
         Hotkeys.Normalize();
+
+        if (!Enum.IsDefined(OverlayWindowSize))
+        {
+            OverlayWindowSize = OverlayWindowSize.Compact200;
+        }
 
         foreach (var profile in Profiles)
         {
@@ -75,7 +84,11 @@ internal sealed class AppConfig
     public AppConfig Clone() => new()
     {
         OverlayVisible = OverlayVisible,
+        StartWithWindows = StartWithWindows,
+        StartMinimizedToTray = StartMinimizedToTray,
         TargetMonitorDeviceName = TargetMonitorDeviceName,
+        OverlayWindowSize = OverlayWindowSize,
+        EditorMonitorDeviceName = EditorMonitorDeviceName,
         ActiveProfileId = ActiveProfileId,
         LastPromptedUpdateVersion = LastPromptedUpdateVersion,
         Profiles = Profiles.Select(profile => profile.Clone()).ToList(),
@@ -87,6 +100,15 @@ internal sealed class AppConfig
         var normalized = angle % 360;
         return normalized < 0 ? normalized + 360 : normalized;
     }
+}
+
+internal enum OverlayWindowSize
+{
+    Compact200,
+    QuarterScreen,
+    HalfScreen,
+    ThreeQuartersScreen,
+    FullScreen
 }
 
 internal sealed class CrosshairProfile
